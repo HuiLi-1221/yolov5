@@ -58,7 +58,7 @@ except (ModuleNotFoundError, ImportError, AssertionError):
     comet_ml = None
 
 
-class Loggers():
+class Loggers():  # 日志工具
     # YOLOv5 Loggers class
     def __init__(self, save_dir=None, weights=None, opt=None, hyp=None, logger=None, include=LOGGERS):
         self.save_dir = save_dir
@@ -173,7 +173,7 @@ class Loggers():
         # Callback runs on train batch end
         # ni: number integrated batches (since train start)
         if self.plots:
-            if ni < 3:
+            if ni < 3:  # 前3批画图画出来
                 f = self.save_dir / f'train_batch{ni}.jpg'  # filename
                 plot_images(imgs, targets, paths, f)
                 if ni == 0 and self.tb and not self.opt.sync_bn:

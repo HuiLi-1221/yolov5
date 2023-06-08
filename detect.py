@@ -80,24 +80,24 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
-    source = str(source)
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
-    is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
-    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-    webcam = source.isnumeric() or source.endswith('.streams') or (is_url and not is_file)
+    source = str(source)   #强制转化成字符串类型
+    save_img = not nosave and not source.endswith('.txt')  # save inference images  如果它是True，就保存图片
+    is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)  # 判断给的source地址的后缀是否位于后面俩中的格式中
+    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))  # 判断是不是网络流地址
+    webcam = source.isnumeric() or source.endswith('.streams') or (is_url and not is_file)  # 摄像头路径 TODO
     screenshot = source.lower().startswith('screen')
-    if is_url and is_file:
+    if is_url and is_file:  # 如果是网络流地址并且是个文件，那么就去下载
         source = check_file(source)  # download
 
     # Directories
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir  如果传入了save_txt=True，就额外新建一个labels文件夹
 
     # Load model
     device = select_device(device)
-    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-    stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_img_size(imgsz, s=stride)  # check image size
+    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)  # 多后端的类，看你是从哪个后端加载模型
+    stride, names, pt = model.stride, model.names, model.pt  # 得到模型步长、模型的类别名、模型是否是pytorch
+    imgsz = check_img_size(imgsz, s=stride)  # check image size  # 如果图片大小不是步长的倍数，就默认计算一个是步长倍数的大小，更改图片大小
 
     # Dataloader
     bs = 1  # batch_size
@@ -108,11 +108,11 @@ def run(
     elif screenshot:
         dataset = LoadScreenshots(source, img_size=imgsz, stride=stride, auto=pt)
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)  # 加载图片
     vid_path, vid_writer = [None] * bs, [None] * bs
 
     # Run inference
-    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup  预热，一种训练技巧
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:

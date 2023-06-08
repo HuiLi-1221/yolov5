@@ -4,8 +4,8 @@ Train a YOLOv5 model on a custom dataset.
 Models and datasets download automatically from the latest YOLOv5 release.
 
 Usage - Single-GPU training:
-    $ python train.py --data coco128.yaml --weights yolov5s.pt --img 640  # from pretrained (recommended)
-    $ python train.py --data coco128.yaml --weights '' --cfg yolov5s.yaml --img 640  # from scratch
+    $ python train.py --data coco128.yaml --weights yolov5s.pt --img 640  # from pretrained (recommended)  # 直接使用预训练权重
+    $ python train.py --data coco128.yaml --weights '' --cfg yolov5s.yaml --img 640  # from scratch  # 从零开始训练权重
 
 Usage - Multi-GPU DDP training:
     $ python -m torch.distributed.run --nproc_per_node 4 --master_port 1 train.py --data coco128.yaml --weights yolov5s.pt --img 640 --device 0,1,2,3
@@ -61,7 +61,7 @@ from utils.plots import plot_evolve
 from utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, select_device, smart_DDP, smart_optimizer,
                                smart_resume, torch_distributed_zero_first)
 
-LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
+LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html  分布式训练
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 GIT_INFO = check_git_info()
@@ -73,19 +73,19 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         opt.resume, opt.noval, opt.nosave, opt.workers, opt.freeze
     callbacks.run('on_pretrain_routine_start')
 
-    # Directories
+    # Directories  创建保存文件
     w = save_dir / 'weights'  # weights dir
     (w.parent if evolve else w).mkdir(parents=True, exist_ok=True)  # make dir
     last, best = w / 'last.pt', w / 'best.pt'
 
-    # Hyperparameters
+    # Hyperparameters  加载要用到的超参数
     if isinstance(hyp, str):
         with open(hyp, errors='ignore') as f:
             hyp = yaml.safe_load(f)  # load hyps dict
     LOGGER.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     opt.hyp = hyp.copy()  # for saving hyps to checkpoints
 
-    # Save run settings
+    # Save run settings  保存用到的超参数/执行脚本文件在命令行使用的参数
     if not evolve:
         yaml_save(save_dir / 'hyp.yaml', hyp)
         yaml_save(save_dir / 'opt.yaml', vars(opt))
@@ -96,7 +96,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         loggers = Loggers(save_dir, weights, opt, hyp, LOGGER)  # loggers instance
 
         # Register actions
-        for k in methods(loggers):
+        for k in methods(loggers):  # 遍历日志工具
             callbacks.register_action(k, callback=getattr(loggers, k))
 
         # Process custom dataset artifact link
@@ -110,12 +110,12 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     init_seeds(opt.seed + 1 + RANK, deterministic=True)
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
-    train_path, val_path = data_dict['train'], data_dict['val']
-    nc = 1 if single_cls else int(data_dict['nc'])  # number of classes
-    names = {0: 'item'} if single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-    is_coco = isinstance(val_path, str) and val_path.endswith('coco/val2017.txt')  # COCO dataset
+    train_path, val_path = data_dict['train'], data_dict['val']  # 从coco128取出训练集路径和验证集路径
+    nc = 1 if single_cls else int(data_dict['nc'])  # number of classes  取出有多少类
+    names = {0: 'item'} if single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names  取出类名
+    is_coco = isinstance(val_path, str) and val_path.endswith('coco/val2017.txt')  # COCO dataset  判断是否用的coco数据集
 
-    # Model
+    # Model  模型加载
     check_suffix(weights, '.pt')  # check weights
     pretrained = weights.endswith('.pt')
     if pretrained:
@@ -132,7 +132,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
     amp = check_amp(model)  # check AMP
 
-    # Freeze
+    # Freeze  可以传入你想冻结多少层，就是多少层的参数不变，只训练后面的
     freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
@@ -141,7 +141,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             LOGGER.info(f'freezing {k}')
             v.requires_grad = False
 
-    # Image size
+    # Image size 检查尺寸，不是32的倍数自动补成32倍数
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
     imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple
 
@@ -150,30 +150,30 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         batch_size = check_train_batch_size(model, imgsz, amp)
         loggers.on_params_update({'batch_size': batch_size})
 
-    # Optimizer
+    # Optimizer  优化器
     nbs = 64  # nominal batch size
-    accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing
+    accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing  累计次数
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
     optimizer = smart_optimizer(model, opt.optimizer, hyp['lr0'], hyp['momentum'], hyp['weight_decay'])
 
-    # Scheduler
+    # Scheduler 学习率变化的策略
     if opt.cos_lr:
         lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
-    else:
-        lf = lambda x: (1 - x / epochs) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
+    else:  #lf是一个学习率因子 学习率要乘它
+        lf = lambda x: (1 - x / epochs) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear 线性
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
 
     # EMA
     ema = ModelEMA(model) if RANK in {-1, 0} else None
 
-    # Resume
+    # Resume 从预训练权重中加载一些信息
     best_fitness, start_epoch = 0.0, 0
     if pretrained:
         if resume:
             best_fitness, start_epoch, epochs = smart_resume(ckpt, optimizer, ema, weights, epochs, resume)
         del ckpt, csd
 
-    # DP mode
+    # DP mode 多gpu才用到
     if cuda and RANK == -1 and torch.cuda.device_count() > 1:
         LOGGER.warning(
             'WARNING ⚠️ DP not recommended, use torch.distributed.run for best DDP Multi-GPU results.\n'
@@ -186,7 +186,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
         LOGGER.info('Using SyncBatchNorm()')
 
-    # Trainloader
+    # Trainloader 训练集的数据加载
     train_loader, dataset = create_dataloader(train_path,
                                               imgsz,
                                               batch_size // WORLD_SIZE,
@@ -204,11 +204,11 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                               shuffle=True,
                                               seed=opt.seed)
     labels = np.concatenate(dataset.labels, 0)
-    mlc = int(labels[:, 0].max())  # max label class
+    mlc = int(labels[:, 0].max())  # max label class 计算标签的最大类别号
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
 
     # Process 0
-    if RANK in {-1, 0}:
+    if RANK in {-1, 0}:  # 验证集的数据加载器
         val_loader = create_dataloader(val_path,
                                        imgsz,
                                        batch_size // WORLD_SIZE * 2,
@@ -224,21 +224,22 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
         if not resume:
             if not opt.noautoanchor:
-                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)  # run AutoAnchor
+                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)  # run AutoAnchor 检查anchors
             model.half().float()  # pre-reduce anchor precision
 
-        callbacks.run('on_pretrain_routine_end', labels, names)
+        callbacks.run('on_pretrain_routine_end', labels, names)  #  日志记录 绘图
 
     # DDP mode
     if cuda and RANK != -1:
         model = smart_DDP(model)
 
     # Model attributes
-    nl = de_parallel(model).model[-1].nl  # number of detection layers (to scale hyps)
-    hyp['box'] *= 3 / nl  # scale to layers
-    hyp['cls'] *= nc / 80 * 3 / nl  # scale to classes and layers
-    hyp['obj'] *= (imgsz / 640) ** 2 * 3 / nl  # scale to image size and layers
+    nl = de_parallel(model).model[-1].nl  # number of detection layers (to scale hyps) 判断有多少个检测层
+    hyp['box'] *= 3 / nl  # scale to layers 框回归 缩放
+    hyp['cls'] *= nc / 80 * 3 / nl  # scale to classes and layers 类别
+    hyp['obj'] *= (imgsz / 640) ** 2 * 3 / nl  # scale to image size and layers 置信度
     hyp['label_smoothing'] = opt.label_smoothing
+    # 把类别数、超参数、类别权重、名字写入模型里
     model.nc = nc  # attach number of classes to model
     model.hyp = hyp  # attach hyperparameters to model
     model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
@@ -253,22 +254,22 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = torch.cuda.amp.GradScaler(enabled=amp)
-    stopper, stop = EarlyStopping(patience=opt.patience), False
-    compute_loss = ComputeLoss(model)  # init loss class
+    scaler = torch.cuda.amp.GradScaler(enabled=amp) # 自动混合精度
+    stopper, stop = EarlyStopping(patience=opt.patience), False # 提前结束训练
+    compute_loss = ComputeLoss(model)  # init loss class 损失函数
     callbacks.run('on_train_start')
-    LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'
+    LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'  # 打印一些提示信息
                 f'Using {train_loader.num_workers * WORLD_SIZE} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
                 f'Starting training for {epochs} epochs...')
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run('on_train_epoch_start')
-        model.train()
+        model.train() #训练！！！
 
         # Update image weights (optional, single-GPU only)
         if opt.image_weights:
-            cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
-            iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights
+            cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights 如果某一类不精确度比较高，就会算出来一个比较大的类别权重，从而增加它被采样到的概率
+            iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights 把类别权重换算到图像的维度
             dataset.indices = random.choices(range(dataset.n), weights=iw, k=dataset.n)  # rand weighted idx
 
         # Update mosaic border (optional)
@@ -281,11 +282,11 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         pbar = enumerate(train_loader)
         LOGGER.info(('\n' + '%11s' * 7) % ('Epoch', 'GPU_mem', 'box_loss', 'obj_loss', 'cls_loss', 'Instances', 'Size'))
         if RANK in {-1, 0}:
-            pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
-        optimizer.zero_grad()
+            pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar 展示进度条
+        optimizer.zero_grad()  # 梯度先归零
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run('on_train_batch_start')
-            ni = i + nb * epoch  # number integrated batches (since train start)
+            ni = i + nb * epoch  # number integrated batches (since train start)记录批次
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
 
             # Warmup
@@ -299,7 +300,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
-            # Multi-scale
+            # Multi-scale 多尺度训练（用不到
             if opt.multi_scale:
                 sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5) + gs) // gs * gs  # size
                 sf = sz / max(imgs.shape[2:])  # scale factor
@@ -307,10 +308,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
                     imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
-            # Forward
+            # Forward 前向传播
             with torch.cuda.amp.autocast(amp):
-                pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+                pred = model(imgs)  # forward 图片传给模型得到预测框
+                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size 利用预测框和标注框计算损失值
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
                 if opt.quad:
@@ -319,7 +320,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             # Backward
             scaler.scale(loss).backward()
 
-            # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
+            # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html 更新参数
             if ni - last_opt_step >= accumulate:
                 scaler.unscale_(optimizer)  # unscale gradients
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
@@ -336,7 +337,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'  # (GB)
                 pbar.set_description(('%11s' * 2 + '%11.4g' * 5) %
                                      (f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
-                callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))
+                callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))  # 画前三批次的图
                 if callbacks.stop_training:
                     return
             # end batch ------------------------------------------------------------------------------------------------
@@ -369,7 +370,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             if fi > best_fitness:
                 best_fitness = fi
             log_vals = list(mloss) + list(results) + lr
-            callbacks.run('on_fit_epoch_end', log_vals, epoch, best_fitness, fi)
+            callbacks.run('on_fit_epoch_end', log_vals, epoch, best_fitness, fi) # result.csv
 
             # Save model
             if (not nosave) or (final_epoch and not evolve):  # if save
@@ -422,13 +423,13 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                         save_dir=save_dir,
                         save_json=is_coco,
                         verbose=True,
-                        plots=plots,
+                        plots=plots, # 在验证集上跑 额外保存的一些图
                         callbacks=callbacks,
                         compute_loss=compute_loss)  # val best model with plots
                     if is_coco:
                         callbacks.run('on_fit_epoch_end', list(mloss) + list(results) + lr, epoch, best_fitness, fi)
 
-        callbacks.run('on_train_end', last, best, epoch, results)
+        callbacks.run('on_train_end', last, best, epoch, results)  # 画出results.png
 
     torch.cuda.empty_cache()
     return results
@@ -480,14 +481,14 @@ def parse_opt(known=False):
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
 
-def main(opt, callbacks=Callbacks()):
-    # Checks
-    if RANK in {-1, 0}:
-        print_args(vars(opt))
-        check_git_status()
-        check_requirements()
+def main(opt, callbacks=Callbacks()):  # 代码分成四个部分
+    # Checks  校验
+    if RANK in {-1, 0}:  # RANK默认值是-1，在范围里
+        print_args(vars(opt))  # 打印所要用到的参数信息
+        check_git_status()  # 检查GitHub里的代码有没有更新
+        check_requirements()  # 检查requirements里的依赖包有没有正确安装成功
 
-    # Resume (from specified or most recent last.pt)
+    # Resume (from specified or most recent last.pt)  判断是否传入Resume
     if opt.resume and not check_comet_resume(opt) and not opt.evolve:
         last = Path(check_file(opt.resume) if isinstance(opt.resume, str) else get_latest_run())
         opt_yaml = last.parent.parent / 'opt.yaml'  # train options yaml
@@ -501,19 +502,19 @@ def main(opt, callbacks=Callbacks()):
         opt.cfg, opt.weights, opt.resume = '', str(last), True  # reinstate
         if is_url(opt_data):
             opt.data = check_file(opt_data)  # avoid HUB resume auth timeout
-    else:
+    else:  # 没有用到resume
         opt.data, opt.cfg, opt.hyp, opt.weights, opt.project = \
             check_file(opt.data), check_yaml(opt.cfg), check_yaml(opt.hyp), str(opt.weights), str(opt.project)  # checks
-        assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
-        if opt.evolve:
+        assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'  #如果既没有cfg又没有weights就会报错，不知道用的是什么模型
+        if opt.evolve:  # 没用到evolve参数
             if opt.project == str(ROOT / 'runs/train'):  # if default project name, rename to runs/evolve
                 opt.project = str(ROOT / 'runs/evolve')
             opt.exist_ok, opt.resume = opt.resume, False  # pass resume to exist_ok and disable resume
-        if opt.name == 'cfg':
+        if opt.name == 'cfg':  # 没用到name参数，默认
             opt.name = Path(opt.cfg).stem  # use model.yaml as name
         opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
 
-    # DDP mode
+    # DDP mode  判断是否用DDP训练
     device = select_device(opt.device, batch_size=opt.batch_size)
     if LOCAL_RANK != -1:
         msg = 'is not compatible with YOLOv5 Multi-GPU DDP training'
@@ -526,12 +527,12 @@ def main(opt, callbacks=Callbacks()):
         device = torch.device('cuda', LOCAL_RANK)
         dist.init_process_group(backend='nccl' if dist.is_nccl_available() else 'gloo')
 
-    # Train
-    if not opt.evolve:
-        train(opt.hyp, opt, device, callbacks)
+    # Train  正式开始训练
+    if not opt.evolve:  # 没用到evolve，执行这个
+        train(opt.hyp, opt, device, callbacks)  #！！！
 
     # Evolve hyperparameters (optional)
-    else:
+    else:  # 遗传算法调参
         # Hyperparameter evolution metadata (mutation scale 0-1, lower_limit, upper_limit)
         meta = {
             'lr0': (1, 1e-5, 1e-1),  # initial learning rate (SGD=1E-2, Adam=1E-3)
@@ -638,5 +639,5 @@ def run(**kwargs):
 
 
 if __name__ == '__main__':
-    opt = parse_opt()
+    opt = parse_opt()  # 解析命令行传入的参数
     main(opt)

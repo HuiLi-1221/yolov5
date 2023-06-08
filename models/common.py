@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import cv2
 import numpy as np
 import pandas as pd
-import requests
+# import requests
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -42,7 +42,7 @@ def autopad(k, p=None, d=1):  # kernel, padding, dilation
     return p
 
 
-class Conv(nn.Module):
+class Conv(nn.Module):  # 卷积层
     # Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)
     default_act = nn.SiLU()  # default activation
 
@@ -331,8 +331,8 @@ class DetectMultiBackend(nn.Module):
         from models.experimental import attempt_download, attempt_load  # scoped to avoid circular import
 
         super().__init__()
-        w = str(weights[0] if isinstance(weights, list) else weights)
-        pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, triton = self._model_type(w)
+        w = str(weights[0] if isinstance(weights, list) else weights)  # 如果weights是一个列表，就取出列表中的第一个
+        pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, triton = self._model_type(w)  # 如果是w是yolov5s.pt,那么pt就为True，其余的都是False
         fp16 &= pt or jit or onnx or engine  # FP16
         nhwc = coreml or saved_model or pb or tflite or edgetpu  # BHWC formats (vs torch BCWH)
         stride = 32  # default stride
@@ -681,8 +681,9 @@ class AutoShape(nn.Module):
             for i, im in enumerate(ims):
                 f = f'image{i}'  # filename
                 if isinstance(im, (str, Path)):  # filename or uri
-                    im, f = Image.open(requests.get(im, stream=True).raw if str(im).startswith('http') else im), im
-                    im = np.asarray(exif_transpose(im))
+                    # im, f = Image.open(requests.get(im, stream=True).raw if str(im).startswith('http') else im), im
+                    # im = np.asarray(exif_transpose(im))
+                    pass
                 elif isinstance(im, Image.Image):  # PIL Image
                     im, f = np.asarray(exif_transpose(im)), getattr(im, 'filename', f) or f
                 files.append(Path(f).with_suffix('.jpg').name)

@@ -238,30 +238,30 @@ class LoadScreenshots:
 
 class LoadImages:
     # YOLOv5 image/video dataloader, i.e. `python detect.py --source image.jpg/vid.mp4`
-    def __init__(self, path, img_size=640, stride=32, auto=True, transforms=None, vid_stride=1):
+    def __init__(self, path, img_size=640, stride=32, auto=True, transforms=None, vid_stride=1):  # 初始化对象的时候，传进了一些参数
         if isinstance(path, str) and Path(path).suffix == '.txt':  # *.txt file with img/vid/dir on each line
             path = Path(path).read_text().rsplit()
         files = []
         for p in sorted(path) if isinstance(path, (list, tuple)) else [path]:
-            p = str(Path(p).resolve())
+            p = str(Path(p).resolve())  # 获取绝对路径
             if '*' in p:
                 files.extend(sorted(glob.glob(p, recursive=True)))  # glob
             elif os.path.isdir(p):
                 files.extend(sorted(glob.glob(os.path.join(p, '*.*'))))  # dir
             elif os.path.isfile(p):
-                files.append(p)  # files
+                files.append(p)  # files  如果路径是文件类型的，就把路径变成在列表里面的
             else:
                 raise FileNotFoundError(f'{p} does not exist')
 
-        images = [x for x in files if x.split('.')[-1].lower() in IMG_FORMATS]
+        images = [x for x in files if x.split('.')[-1].lower() in IMG_FORMATS]  # 遍历files中的所有元素
         videos = [x for x in files if x.split('.')[-1].lower() in VID_FORMATS]
         ni, nv = len(images), len(videos)
 
         self.img_size = img_size
         self.stride = stride
-        self.files = images + videos
-        self.nf = ni + nv  # number of files
-        self.video_flag = [False] * ni + [True] * nv
+        self.files = images + videos  # 一共就有这些个文件个数
+        self.nf = ni + nv  # number of files # 一共就有这些个文件个数
+        self.video_flag = [False] * ni + [True] * nv  # [False]
         self.mode = 'image'
         self.auto = auto
         self.transforms = transforms  # optional
@@ -274,15 +274,15 @@ class LoadImages:
                             f'Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}'
 
     def __iter__(self):
-        self.count = 0
+        self.count = 0  # 索引
         return self
 
-    def __next__(self):
-        if self.count == self.nf:
+    def __next__(self):  # 遍历所有文件
+        if self.count == self.nf:  # 遍历完了，退出
             raise StopIteration
         path = self.files[self.count]
 
-        if self.video_flag[self.count]:
+        if self.video_flag[self.count]:  # 是不是视频 False 不是
             # Read video
             self.mode = 'video'
             for _ in range(self.vid_stride):
@@ -301,17 +301,17 @@ class LoadImages:
             # im0 = self._cv2_rotate(im0)  # for use if cv2 autorotation is False
             s = f'video {self.count + 1}/{self.nf} ({self.frame}/{self.frames}) {path}: '
 
-        else:
+        else: # 进行到这一步，读图
             # Read image
             self.count += 1
-            im0 = cv2.imread(path)  # BGR
+            im0 = cv2.imread(path)  # BGR 从路径里读图
             assert im0 is not None, f'Image Not Found {path}'
-            s = f'image {self.count}/{self.nf} {path}: '
+            s = f'image {self.count}/{self.nf} {path}: '  # 输出打印信息，打印图片处理到第几张了
 
         if self.transforms:
             im = self.transforms(im0)  # transforms
         else:
-            im = letterbox(im0, self.img_size, stride=self.stride, auto=self.auto)[0]  # padded resize
+            im = letterbox(im0, self.img_size, stride=self.stride, auto=self.auto)[0]  # padded resize 把原图变成一个特定大小的图片
             im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
             im = np.ascontiguousarray(im)  # contiguous
 

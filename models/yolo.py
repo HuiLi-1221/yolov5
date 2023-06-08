@@ -165,8 +165,9 @@ class BaseModel(nn.Module):
 class DetectionModel(BaseModel):
     # YOLOv5 detection model
     def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
+        # 1.加载配置文件
         super().__init__()
-        if isinstance(cfg, dict):
+        if isinstance(cfg, dict):  # 判断导入的cfg是不是字典类型的值，如果是
             self.yaml = cfg  # model dict
         else:  # is *.yaml
             import yaml  # for torch hub
@@ -174,31 +175,31 @@ class DetectionModel(BaseModel):
             with open(cfg, encoding='ascii', errors='ignore') as f:
                 self.yaml = yaml.safe_load(f)  # model dict
 
-        # Define model
-        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
-        if nc and nc != self.yaml['nc']:
+        # Define model 2.利用加载好的配置文件去一步步搭建网络的每一层
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels 在yaml中添加了一个键值对表示ch=3
+        if nc and nc != self.yaml['nc']:  # 判断传入的nc和yaml中的nc一不一样
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
-            self.yaml['nc'] = nc  # override yaml value
+            self.yaml['nc'] = nc  # override yaml value 如果不相等，就覆盖
         if anchors:
             LOGGER.info(f'Overriding model.yaml anchors with anchors={anchors}')
             self.yaml['anchors'] = round(anchors)  # override yaml value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist 利用yaml文件去搭建每一层
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         self.inplace = self.yaml.get('inplace', True)
 
-        # Build strides, anchors
+        # Build strides, anchors 3.根据输入图片和输出图片的大小求网络的步长和对anchors进行处理
         m = self.model[-1]  # Detect()
         if isinstance(m, (Detect, Segment)):
             s = 256  # 2x min stride
             m.inplace = self.inplace
             forward = lambda x: self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)
             m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
-            check_anchor_order(m)
-            m.anchors /= m.stride.view(-1, 1, 1)
+            check_anchor_order(m)  # 检测anchor顺序对不对
+            m.anchors /= m.stride.view(-1, 1, 1)  # 得到在特征图上的anchors大小
             self.stride = m.stride
             self._initialize_biases()  # only run once
 
-        # Init weights, biases
+        # Init weights, biases  4.对网络参数初始化和进行一些打印操作
         initialize_weights(self)
         self.info()
         LOGGER.info('')
@@ -298,32 +299,32 @@ class ClassificationModel(BaseModel):
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
     # Parse a YOLOv5 model.yaml dictionary
-    LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
-    anchors, nc, gd, gw, act = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple'], d.get('activation')
+    LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")  # 打印信息
+    anchors, nc, gd, gw, act = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple'], d.get('activation')  # 从yaml文件中取出来了四个东西并赋值给四个变量
     if act:
         Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
         LOGGER.info(f"{colorstr('activation:')} {act}")  # print
-    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors na表示3
+    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)=3*（80+5）
 
-    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
+    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out c2输出通道数
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
+        m = eval(m) if isinstance(m, str) else m  # eval strings 推断出conv这个类
         for j, a in enumerate(args):
             with contextlib.suppress(NameError):
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
 
-        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
+        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain n的实际值
         if m in {
                 Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x}:
-            c1, c2 = ch[f], args[0]
+            c1, c2 = ch[f], args[0]  # c1=3 c2=64
             if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
+                c2 = make_divisible(c2 * gw, 8)  # c2=32
 
             args = [c1, c2, *args[1:]]
             if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
-                args.insert(2, n)  # number of repeats
+                args.insert(2, n)  # number of repeats 如果在C3层，额外拼接一个n这个参数
                 n = 1
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
